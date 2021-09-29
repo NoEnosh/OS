@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "stat.h"
 
 uint64
 sys_exit(void)
@@ -38,6 +39,24 @@ sys_wait(void)
   return wait(p);
 }
 
+/*wait_stat added*/
+uint64
+sys_wait_stat(void)
+{
+  int* status;
+  struct perf *performance;
+  
+  uint64 p;
+  if(argaddr(0, &p) < 0)
+    return -1;
+  status = (int *)p;  
+  if(argaddr(1, &p) < 0)
+    return -1;
+  performance = (struct perf *)p;  
+    
+  return wait_stat(status,performance);
+}
+
 uint64
 sys_sbrk(void)
 {
@@ -46,6 +65,10 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
+  
+  /* trace added */  
+  printf("%d  ", n);
+ 
   addr = myproc()->sz;
   if(growproc(n) < 0)
     return -1;
@@ -80,6 +103,10 @@ sys_kill(void)
 
   if(argint(0, &pid) < 0)
     return -1;
+  
+  /* trace added */
+  printf("%d  ", pid);
+  
   return kill(pid);
 }
 
@@ -94,4 +121,18 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+/*trace added*/
+uint64
+sys_trace(void)
+{
+  int pid;
+  int mask;
+
+  if(argint(0, &mask) < 0)
+    return -1;
+  if(argint(1, &pid) < 0)
+    return -1;
+  return trace(mask,pid);
 }

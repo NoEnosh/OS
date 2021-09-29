@@ -122,6 +122,8 @@ UPROGS=\
 	$U/_grep\
 	$U/_init\
 	$U/_kill\
+	$U/_trace\
+	$U/_wait_stat\
 	$U/_ln\
 	$U/_ls\
 	$U/_mkdir\

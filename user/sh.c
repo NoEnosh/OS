@@ -75,7 +75,38 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       exit(1);
-    exec(ecmd->argv[0], ecmd->argv);
+    exec(ecmd->argv[0], ecmd->argv);		
+     
+     /*path added*/
+     int file = open("path",O_RDONLY);
+     char stringPath[246];
+     char* fileName = ecmd->argv[0];
+     char c[1];
+     int counterS=0;
+     int counterF=0;
+     
+     if(fileName[0] != '/'){
+     	while(read(file,c,1) != 0){
+     		if(c[0] !=':'){
+	     	    stringPath[counterS] = c[0];
+	     	    counterS++;
+     		}
+     		else {
+     		    while(fileName[counterF] != 0){
+     		        stringPath[counterS] = fileName[counterF];
+     		        counterF++;
+     		        counterS++;  
+     		    }
+     		    
+     		    stringPath[counterS] = 0;
+     		    counterS = 0;
+     		    counterF = 0;
+     		    exec(stringPath, ecmd -> argv);
+     		}	
+     	}
+     }
+    
+    
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
     break;
 

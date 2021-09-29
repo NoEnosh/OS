@@ -92,7 +92,21 @@ struct proc {
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
-
+  
+  /*trace added*/
+  int mask;		      // the mask number. if trace hasnt been called, mask = 0. 
+  
+   
+   /*wait_stat added*/
+   int ctime;
+   int ttime;
+   int stime;
+   int retime;
+   int rutime;
+   int average_bursttime; //average of bursstimes in 100ths (so average*100)
+   int timeLatestApdate;
+   
+   
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 

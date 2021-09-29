@@ -1,5 +1,6 @@
 struct stat;
 struct rtcdate;
+struct perf; /* wait_stat added */
 
 // system calls
 int fork(void);
@@ -23,6 +24,8 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int trace(int, int);  /* trace added */
+int wait_stat(int*, struct perf*);  /* wait_stat added */
 
 // ulib.c
 int stat(const char*, struct stat*);

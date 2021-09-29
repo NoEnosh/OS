@@ -9,3 +9,13 @@ struct stat {
   short nlink; // Number of links to file
   uint64 size; // Size of file in bytes
 };
+
+/* wait_stat added */
+struct perf {
+	int ctime;
+	int ttime;
+	int stime;
+	int retime;
+	int rutime;
+	int average_bursttime; //average of bursstimes in 100ths (so average*100)
+};

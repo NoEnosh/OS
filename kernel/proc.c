@@ -5,12 +5,41 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include  "stat.h"
+extern uint64 sys_uptime(void); /* wait_stat added */
 
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
 
 struct proc *initproc;
+
+/* wait_stat added */
+int updateStateTime (struct proc *p)
+{
+   int currentTime;
+   if (p->state==SLEEPING){
+      currentTime = sys_uptime();
+      p->stime = p->stime + (currentTime-p->timeLatestApdate);
+      p->timeLatestApdate = currentTime;
+      return 0;
+   }
+   else if (p->state==RUNNABLE){
+      currentTime = sys_uptime();
+      p->retime = p->retime + (currentTime-p->timeLatestApdate);
+      p->timeLatestApdate = currentTime;
+      return 0;
+   }
+   else if (p->state==RUNNING){
+      currentTime = sys_uptime();
+      p->rutime = p->rutime + (currentTime-p->timeLatestApdate);
+      p->timeLatestApdate = currentTime;
+      return 0;
+   }
+   else {
+      return -1;
+   }
+}
 
 int nextpid = 1;
 struct spinlock pid_lock;
@@ -141,6 +170,13 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  /*trace added*/
+  p->mask = 0;
+  
+  /* wait_stat added*/
+  p->ctime = sys_uptime(); 
+  
+  
   return p;
 }
 
@@ -163,7 +199,20 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  
+  /* wait_stat added */
+   p->ctime = 0;
+   p-> ttime = 0;
+   p-> stime = 0;
+   p-> retime = 0;
+   p-> rutime = 0;
+   p-> average_bursttime = 0; //average of bursstimes in 100ths (so average*100)
+   p-> timeLatestApdate = 0;
+   
+     
   p->state = UNUSED;
+  /*trace added*/
+  p->mask = 0;
 }
 
 // Create a user page table for a given process,
@@ -243,7 +292,10 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
-
+  
+   /*wait_stat added*/
+   p->timeLatestApdate = sys_uptime();
+  
   release(&p->lock);
 }
 
@@ -288,6 +340,10 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  
+  //Copy trace from parent to child.
+  /* trace added*/
+  np->mask = p->mask;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -313,6 +369,10 @@ fork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+  
+  /*wait_stat added*/
+   np->timeLatestApdate = sys_uptime();
+   
   release(&np->lock);
 
   return pid;
@@ -369,8 +429,15 @@ exit(int status)
   acquire(&p->lock);
 
   p->xstate = status;
+  
+  /*wait_stat added*/
+  updateStateTime(p);
+     
   p->state = ZOMBIE;
-
+  
+  /*wait_stat added*/
+  p->ttime = sys_uptime();
+      
   release(&wait_lock);
 
   // Jump into the scheduler, never to return.
@@ -451,6 +518,10 @@ scheduler(void)
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
+        
+        /*wait_stat added*/
+        updateStateTime(p);
+     
         p->state = RUNNING;
         c->proc = p;
         swtch(&c->context, &p->context);
@@ -463,6 +534,76 @@ scheduler(void)
     }
   }
 }
+
+/* scheduling added */
+void
+scheduler(void)
+{
+      struct proc *p;
+      struct cpu *c = mycpu();
+	  
+      /*4.1 Default policy*/
+      #ifdef  SCHEDFLAG=DEFAULT	  
+	  c->proc = 0;
+	  for(;;){
+	    // Avoid deadlock by ensuring that devices can interrupt.
+	    intr_on();
+
+	    for(p = proc; p < &proc[NPROC]; p++) {
+	      acquire(&p->lock);
+	      if(p->state == RUNNABLE) {
+		// Switch to chosen process.  It is the process's job
+		// to release its lock and then reacquire it
+		// before jumping back to us.
+		
+		/*wait_stat added*/
+		updateStateTime(p);
+	     
+		p->state = RUNNING;
+		c->proc = p;
+		swtch(&c->context, &p->context);
+
+		// Process is done running for now.
+		// It should have changed its p->state before coming back.
+		c->proc = 0;
+	      }
+	      release(&p->lock);
+	    }
+	  }
+      #endif
+      
+      /*4.2 first come first served*/
+      #ifdef SCHEDFLAG=FCFS	  
+	  c->proc = 0;
+	  for(;;){
+	    // we dont care about interrupts???????????.
+
+	    for(p = proc; p < &proc[NPROC]; p++) {
+	      acquire(&p->lock);
+	      if(p->state == RUNNABLE) {
+		// Switch to chosen process.  It is the process's job
+		// to release its lock and then reacquire it
+		// before jumping back to us.
+		
+		/*wait_stat added*/
+		updateStateTime(p);
+	     
+		p->state = RUNNING;
+		c->proc = p;
+		swtch(&c->context, &p->context);
+		while (p->state == RUNNING) { }
+		// Process is done running.
+		// It should have changed its p->state before coming back.
+		c->proc = 0;
+	      }
+	      release(&p->lock);
+	    }
+	  }
+      #endif
+}
+
+
+
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -497,6 +638,10 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
+  
+  /*wait_stat added*/
+  updateStateTime(p);
+     
   p->state = RUNNABLE;
   sched();
   release(&p->lock);
@@ -542,6 +687,10 @@ sleep(void *chan, struct spinlock *lk)
 
   // Go to sleep.
   p->chan = chan;
+  
+  /*wait_stat added*/
+  updateStateTime(p);
+     
   p->state = SLEEPING;
 
   sched();
@@ -565,6 +714,10 @@ wakeup(void *chan)
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
+        
+        /*wait_stat added*/
+        updateStateTime(p);
+     
         p->state = RUNNABLE;
       }
       release(&p->lock);
@@ -584,11 +737,14 @@ kill(int pid)
     acquire(&p->lock);
     if(p->pid == pid){
       p->killed = 1;
-      if(p->state == SLEEPING){
+      if(p->state == SLEEPING){        
+        /*wait_stat added*/
+        updateStateTime(p);
+            
         // Wake process from sleep().
         p->state = RUNNABLE;
       }
-      release(&p->lock);
+      release(&p->lock);      
       return 0;
     }
     release(&p->lock);
@@ -652,5 +808,100 @@ procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+  }
+}
+
+/*trace added*/
+// return pointer to the process with the given pid.
+// if pid wasnt found, return 0.
+static struct proc*
+find_proc(int pid)
+{
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid){
+      release(&p->lock);
+      return p;
+    }
+    release(&p->lock);
+  }
+  return 0;
+}
+
+/*trace added*/
+// find the process with the given pid.
+// change the found proc's mask to the given mask
+// return 0 if succeded, -1 otherwise. 
+int
+trace(int mask, int pid)
+{
+  struct proc *p = find_proc(pid);
+
+  if (p==0)
+      return -1;
+  p->mask=mask;
+  return 0;
+}
+
+/* wait_stat added */
+// Wait for a child process to exit and return its pid.
+// Return -1 if this process has no children.
+int
+wait_stat(int* status, struct perf * performance)
+{
+  struct proc *np;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(np = proc; np < &proc[NPROC]; np++){
+      if(np->parent == p){
+        // make sure the child isn't still in exit() or swtch().
+        acquire(&np->lock);
+
+        havekids = 1;
+        if(np->state == ZOMBIE){
+          // Found one.
+          pid = np->pid;
+          if(copyout(p->pagetable, *status, (char *)&np->xstate,
+                                  sizeof(np->xstate)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            printf("inside //FOUND ONE");
+            return -1;
+          }
+          
+          /* wait_stat added */
+          performance->ctime = np->ctime;
+          performance->ttime = np->ttime;
+          performance->stime = np->stime;
+          performance->retime = np->retime;
+          performance->rutime = np->rutime;
+          performance->average_bursttime = np->average_bursttime;
+          
+          freeproc(np);
+          release(&np->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&np->lock);
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || p->killed){
+      release(&wait_lock);
+      printf("inside, have no zombies!");
+      return -1;
+    }
+    
+    // Wait for a child to exit.
+    sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }
